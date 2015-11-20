@@ -24,45 +24,88 @@
 
 """Model test cases."""
 
-from invenio_base.wrappers import lazy_import
+import os
 
-from invenio_testing import InvenioTestCase
+from flask import Flask
+from flask_cli import FlaskCLI
+from invenio_db import InvenioDB, db
+from sqlalchemy_utils.functions import create_database, drop_database
 
-Collection = lazy_import('invenio_collections.models:Collection')
-cfg = lazy_import('invenio_base.globals:cfg')
+from invenio_collections import InvenioCollections
 
 
-class ModelsTestCase(InvenioTestCase):
+def test_db():
+    """Test database backend."""
+    app = Flask(__name__)
+    app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get(
+        'SQLALCHEMY_DATABASE_URI', 'sqlite:///test.db'
+    )
+    FlaskCLI(app)
+    InvenioDB(app)
+    InvenioCollections(app)
 
-    """Test model classes."""
+    from invenio_collections.models import Collection
 
-    def test_collection_name_validation(self):
-        """Test Collection class' name validation."""
-        c = Collection()
-        test_name = cfg['CFG_SITE_NAME'] + ' - not site name'
+    with app.app_context():
+        create_database(db.engine.url)
+        db.create_all()
+        assert 'collection' in db.metadata.tables
+        assert 'collection_facets' in db.metadata.tables
 
-        # Name can't contain '/' characters
-        with self.assertRaises(ValueError):
-            c.name = 'should/error'
+        coll1 = Collection(name='coll1')
+        db.session.add(coll1)
+        db.session.commit()
 
-        # Name should equal the site name if the collection is a root
-        c.id = 1
-        self.assertTrue(c.is_root)
-        with self.assertWarns(UserWarning):
-            c.name = test_name
-        # Root node's name can equal site name
-        try:
-            with self.assertWarns(UserWarning):
-                c.name = cfg['CFG_SITE_NAME']
-        except AssertionError:
-            pass
+        coll2 = Collection(name='coll2', parent_id=coll1.id)
+        db.session.add(coll2)
+        coll3 = Collection(name='coll3', virtual=True, parent_id=coll1.id)
+        db.session.add(coll3)
+        db.session.commit()
 
-        # Name can't equal the site name if not root collection
-        c.id = 2
-        self.assertFalse(c.is_root)
-        with self.assertRaises(ValueError):
-            c.name = cfg['CFG_SITE_NAME']
+        coll4 = Collection(name='coll4', parent_id=coll2.id)
+        db.session.add(coll4)
+        coll5 = Collection(name='coll5', parent_id=coll2.id)
+        db.session.add(coll5)
+        coll6 = Collection(name='coll6', parent_id=coll3.id)
+        db.session.add(coll6)
+        db.session.commit()
 
-        # Assigning should work in other cases
-        c.name = test_name
-        self.assertEquals(c.name, test_name)
+        coll4_ref = Collection(
+            name='coll4_ref', parent_id=coll3.id, reference=coll4.id)
+        db.session.add(coll4_ref)
+        coll7 = Collection(name='coll7', parent_id=coll4.id)
+        db.session.add(coll7)
+        coll8 = Collection(name='coll8', parent_id=coll4.id)
+        db.session.add(coll8)
+        db.session.commit()
+
+        assert coll4_ref.referenced_collection.name == coll4.name
+        assert coll4.drilldown_tree() == coll4_ref.drilldown_tree()
+
+        tree = coll1.drilldown_tree()
+        assert tree == [
+            {'node': coll1,
+             'children': [{'node': coll2,
+                           'children': [{'node': coll4,
+                                         'children': [{'node': coll7},
+                                                      {'node': coll8}
+                                                      ]
+                                         },
+                                        {'node': coll5}]},
+                          {'node': coll3,
+                           'children': [{'node': coll6},
+                                        {'node': coll4_ref}]}
+                          ]
+             }
+        ]
+        assert tree == coll8.get_tree(session=db.session)
+
+        path_to_root_7 = list(coll7.path_to_root())
+        assert path_to_root_7 == [coll7, coll4, coll2, coll1]
+
+        path_to_root_6 = list(coll6.path_to_root())
+        assert path_to_root_6 == [coll6, coll3]
+
+    with app.app_context():
+        db.drop_all()
+        drop_database(db.engine.url)
