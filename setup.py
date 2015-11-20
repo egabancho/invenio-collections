@@ -35,7 +35,7 @@ history = open('CHANGES.rst').read()
 
 tests_require = [
     'check-manifest>=0.25',
-   'coverage>=4.0',
+    'coverage>=4.0',
     'isort>=4.2.2',
     'pep257>=0.7.0',
     'pytest-cache>=1.0',
@@ -60,12 +60,14 @@ setup_requires = [
 ]
 
 install_requires = [
-    'Flask>=0.10.1',
     'Flask-BabelEx>=0.9.2',
+    'Flask-Breadcrumbs>=0.3.0',
+    'Flask>=0.10.1',
     'invenio-access>=1.0.0a1',
     'invenio-db>=1.0.0a5',
     'invenio-records>=1.0.0a1',
-    'invenio-search',  # FIXME
+    'invenio-search>=1.0.0a1',  # FIXME
+    'python-slugify>=1.1.4',
 ]
 
 packages = find_packages()
@@ -128,7 +130,7 @@ setup(
         'dojson.contrib.marc21': [
             'collections = invenio_collections.contrib.dojson',
         ],
-    }
+    },
     extras_require=extras_require,
     install_requires=install_requires,
     setup_requires=setup_requires,
